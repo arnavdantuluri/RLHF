@@ -13,4 +13,5 @@ Launches script with distributed training on 7 gpus with the 8th hosting the rew
 3B can be comfortably run on 8 A100 40GB gpu; will test 7B model soon<br />
 PPO config contains the main training config parameters. I load it directly in the script and modify it within the code<br />
 Read through the code and run a test run before using.<br />
+Now supports TRL and PEFT. Modified version of TRL might be able to support LLaMa but need to test this further. <br/>
 Have Fun and enjoy RLHF :)<br />
