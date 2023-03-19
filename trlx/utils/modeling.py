@@ -127,7 +127,8 @@ def hf_get_decoder_final_norm(model: nn.Module) -> float:
         "model.decoder.final_layer_norm",
         "decoder.final_layer_norm",
         "gpt_neox.final_layer_norm",
-    )
+        "model.norm",
+        )
     return findattr(model, norm_attrs)
 
 
@@ -147,6 +148,7 @@ def hf_get_decoder_blocks(model: nn.Module) -> Tuple[nn.Module]:
         "model.decoder.layers",
         "gpt_neox.layers",
         "decoder.block",
+        "model.layers",
     )
     return findattr(model, hidden_layers_attrs)
 

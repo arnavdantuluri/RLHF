@@ -12,7 +12,7 @@ from ray.air import session
 from ray.air.checkpoint import Checkpoint
 from rich.console import Console
 from rich.table import Table
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, LlamaTokenizer
 
 import trlx.utils.logging as logging
 from trlx.data.configs import TRLConfig
@@ -58,8 +58,11 @@ class AccelerateRLTrainer(BaseRLTrainer):
         self.model = self.setup_model()
         self.opt = self.setup_optimizer()
         self.scheduler = self.setup_scheduler()
-
-        self.tokenizer = AutoTokenizer.from_pretrained(config.tokenizer.tokenizer_path)
+        
+        if "llama" in config.tokenizer.tokenizer_path.lower():
+            self.tokenizer = LlamaTokenizer.from_pretrained(config.tokenizer.tokenizer_path)
+        else:
+            self.tokenizer = AutoTokenizer.from_pretrained(config.tokenizer.tokenizer_path)
         self.tokenizer.padding_side = config.tokenizer.padding_side
         self.tokenizer.truncation_side = config.tokenizer.truncation_side
         self.tokenizer.sep_token = "<sep>"

@@ -22,10 +22,11 @@ from typing import Dict, List
 from trlx.data.configs import TRLConfig
 import json
 
+directory = os.getcwd()
 reward_name = "OpenAssistant/reward-model-deberta-v3-large-v2"
-sft_model_name = "EleutherAI/pythia-70m"
-dataset_name = "/Users/arnavdantuluri/Desktop/LLama TRLX/chip2_instruct_alpha_v6a_4.json" #Currently only set up to work with rallio's data format; for more info on these look here: https://github.com/LAION-AI/Open-Instruction-Generalist
-dataset2_name = "/Users/arnavdantuluri/Desktop/LLama TRLX/en_100_tree.jsonl"
+sft_model_name = "decapoda-research/llama-7b-hf"
+dataset_name = directory + "/chip2_instruct_alpha_v6a_4.json" #Currently only set up to work with rallio's data format; for more info on these look here: https://github.com/LAION-AI/Open-Instruction-Generalist
+dataset2_name = directory + "/en_100_tree.jsonl"
 max_tokens = 400
 
 rm_model, rm_tokenizer = AutoModelForSequenceClassification.from_pretrained(reward_name), AutoTokenizer.from_pretrained(reward_name)
@@ -151,7 +152,7 @@ def rank_model_fn(samples, **kwargs):
     inputs = rm_tokenizer(samples, return_tensors="pt", padding=True)#.to(rm_device)
     inputs.pop("token_type_ids", None)
     return rm_model(**inputs).logits[:, 0].detach().cpu()
-with open('/Users/arnavdantuluri/Desktop/LLama TRLX/configs/ppo_config_summ_gptj.yaml') as f:
+with open(directory + '/configs/ppo_config_summ_gptj.yaml') as f:
     default_config = yaml.safe_load(f)
 
 trlx_config = TRLConfig.update(default_config, {})

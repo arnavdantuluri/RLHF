@@ -1102,6 +1102,7 @@ def hf_get_branch_class(
         "GPT2LMHeadModel",
         "GPTNeoForCausalLM",
         "GPTNeoXForCausalLM",
+        "LLaMAForCausalLM",
     ]
     opt_branch_supported_archs = ["OPTForCausalLM"]
     bloom_branch_supported_archs = ["BloomModel", "BloomForCausalLM"]
