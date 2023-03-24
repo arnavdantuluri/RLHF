@@ -3,41 +3,53 @@ from typing import List
 
 import torch
 import yaml
-from datasets import load_dataset
-from transformers import pipeline
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, AutoModelForCausalLM
-
 from trlx.trlx import train
 from trlx.data.configs import TRLConfig
+
 from datasets import load_from_disk, Dataset
+from datasets import load_dataset
+from transformers import pipeline
+from datasets import load_dataset
+
+from transformers import pipeline
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
 import pandas as pd
 import datasets
 import torch
 import random
 import yaml
-from datasets import load_dataset
-from transformers import pipeline
 import pathlib
 from typing import Dict, List
-from trlx.data.configs import TRLConfig
 import json
 
 directory = os.getcwd()
-reward_name = "OpenAssistant/reward-model-deberta-v3-large-v2"
-sft_model_name = "decapoda-research/llama-7b-hf"
-dataset_name = directory + "/chip2_instruct_alpha_v6a_4.json" #Currently only set up to work with rallio's data format; for more info on these look here: https://github.com/LAION-AI/Open-Instruction-Generalist
-dataset2_name = directory + "/en_100_tree.jsonl"
+reward_name = "andreaskoepf/oasst-rm-1-pythia-1b"
+sft_model_name = "OpenAssistant/oasst-sft-1-pythia-12b"
+#rallio data is the same as the OIG data; most of which can be used here as well
+# path_1 = directory + "/chip2_instruct_alpha_v6a_4.json" #Currently only set up to work with rallio's data format; for more info on these look here: https://github.com/LAION-AI/Open-Instruction-Generalist
+data_path = directory + "/en_100_tree.jsonl" #change to wherever your code is located
 max_tokens = 400
 
+QA_SPECIAL_TOKENS_V2_5 = {
+    "prompter": "<|prompter|>",
+    "assistant": "<|assistant|>",
+    "system": "<|system|>",
+    "prefix_begin": "<|prefix_begin|>",
+    "prefix_end": "<|prefix_end|>",
+    "eos": "<|endoftext|>",
+}
+
 rm_model, rm_tokenizer = AutoModelForSequenceClassification.from_pretrained(reward_name), AutoTokenizer.from_pretrained(reward_name)
-# rm_model.eval()
-# rm_model.requires_grad_(False)
-# rm_device = torch.cuda.device_count() - 1
-# rm_model = rm_model.half().to(rm_device)
+rm_model.eval()
+rm_model.requires_grad_(False)
+rm_device = torch.cuda.device_count() - 1
+rm_model = rm_model.half().to(rm_device)
 
 #This is only to be used if you are attempting do run both SFT and RLHF in the same script as it loads the dataset with the tokenizer which is quite memory intensive
 #Currently only set up to work with rallio's data format; for more info on these look here: https://github.com/LAION-AI/Open-Instruction-Generalist
-def get_prompts_and_dataset(dataset_name, tokenizer):
+#assuming no prefix will be fed during RL or SFT training
+def get_prompts_and_dataset(dataset_name, tokenizer): #Gives you prompts, train_dataset, eval_dataset NOT advised to use unless you have a lot of GPU hours. 
     with open(dataset_name) as my_file:
         data = my_file.read()
     entries=data.split("<|endoftext|>")
@@ -105,11 +117,14 @@ def get_prompts_and_dataset(dataset_name, tokenizer):
         except:
             #There is one prompt with an issue here; we simply skip that one
             continue
-        prompts.append(final)
+        prompt = final
+        prompts.append(f"{QA_SPECIAL_TOKENS_V2_5['prompter']}{prompt}{QA_SPECIAL_TOKENS_V2_5['eos']}{QA_SPECIAL_TOKENS_V2_5['assistant']}")
     return prompts, my_train_dataset, my_eval_dataset
 
-def get_prompts(dataset_name, dataset2_name=None):
-    with open(dataset_name) as my_file:
+#This is only to get prompts; currently supports rallio's data format and oasst data format
+#assuming no prefix will be fed during RL or SFT training
+def get_prompts_rallio_and_oasst(path_1=None, path_2=None):
+    with open(path_1) as my_file:
         data = my_file.read()
 
     entries=data.split("<|endoftext|>")
@@ -133,30 +148,41 @@ def get_prompts(dataset_name, dataset2_name=None):
     #Adds Rallio's prompts
     for i in range(len(fixed) - 1):
         try:
-            prompts.append(fixed[i].split("\\n")[0].split("User:")[1])
+            prompt = fixed[i].split("\\n")[0].split("User:")[1]
+            prompts.append(f"{QA_SPECIAL_TOKENS_V2_5['prompter']}{prompt}{QA_SPECIAL_TOKENS_V2_5['eos']}{QA_SPECIAL_TOKENS_V2_5['assistant']}")
         except:
             continue
 
     #adds OAsst prompts from file name en_100_message.jsonl
-    #optimize to only use 1 for loop
     
-    with open(dataset2_name, 'r') as json_file:
+    with open(path_2, 'r') as json_file:
         for _line in json_file:
-            prompts.append(json.loads(_line)['prompt']['text'])
+            prompts.append(f"{QA_SPECIAL_TOKENS_V2_5['prompter']}{json.loads(_line)['prompt']['text']}{QA_SPECIAL_TOKENS_V2_5['eos']}{QA_SPECIAL_TOKENS_V2_5['assistant']}")
 
     return prompts
 
-prompts = get_prompts(dataset_name, dataset2_name)
+#get prompts from oasst data only; sample can be found in the Open Assistant repository
+#assuming no prefix will be fed during RL or SFT training
+def get_prompts_oasst_only(path):
+    prompts=[]
+
+    with open(path, 'r') as json_file:
+        for _line in json_file:
+            prompts.append(f"{QA_SPECIAL_TOKENS_V2_5['prompter']}{json.loads(_line)['prompt']['text']}{QA_SPECIAL_TOKENS_V2_5['eos']}{QA_SPECIAL_TOKENS_V2_5['assistant']}")
+
+    return prompts
+
+prompts = get_prompts_oasst_only(data_path)
+
 @torch.no_grad()
 def rank_model_fn(samples, **kwargs):
-    inputs = rm_tokenizer(samples, return_tensors="pt", padding=True)#.to(rm_device)
-    inputs.pop("token_type_ids", None)
-    return rm_model(**inputs).logits[:, 0].detach().cpu()
+    inputs = rm_tokenizer(samples, return_tensors="pt", padding=True).to(rm_device)
+    return rm_model(**inputs).logits[0].detach().cpu()
+
 with open(directory + '/configs/ppo_config_summ_gptj.yaml') as f:
     default_config = yaml.safe_load(f)
 
 trlx_config = TRLConfig.update(default_config, {})
-
 
 trlx_config.tokenizer.tokenizer_path = sft_model_name
 trlx_config.model.model_path = sft_model_name
@@ -169,5 +195,6 @@ trainer = train(
     prompts=prompts,
     config=trlx_config,
 )
+
 directory = os.getcwd()
 trainer.save_pretrained(directory + "/checkpoints/best_checkpoint")

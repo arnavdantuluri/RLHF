@@ -197,8 +197,8 @@ class AccelerateRLTrainer(BaseRLTrainer):
             else:
                 output_start_ix = prompt_size
 
-            str_prompt = self.tokenizer.decode(prompt[:prompt_size], skip_special_tokens=True)
-            str_output = self.tokenizer.decode(sample[output_start_ix:], skip_special_tokens=True)
+            str_prompt = self.tokenizer.decode(prompt[:prompt_size], skip_special_tokens=False)
+            str_output = self.tokenizer.decode(sample[output_start_ix:], skip_special_tokens=False)
 
             # Trim outputs up to `self.stop_sequences` if any are present
             if self.stop_sequences:
