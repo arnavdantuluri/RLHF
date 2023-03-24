@@ -28,7 +28,9 @@ reward_name = "andreaskoepf/oasst-rm-1-pythia-1b"
 sft_model_name = "OpenAssistant/oasst-sft-1-pythia-12b"
 #rallio data is the same as the OIG data; most of which can be used here as well
 # path_1 = directory + "/chip2_instruct_alpha_v6a_4.json" #Currently only set up to work with rallio's data format; for more info on these look here: https://github.com/LAION-AI/Open-Instruction-Generalist
-data_path = directory + "/en_100_tree.jsonl" #change to wherever your code is located
+data_path = directory + "/en_100_tree.jsonl.gz" #change to wherever your code is located
+#For OAsst data :)
+# data_path = directory + "/data_cache/2023-03-13_oasst_ready_labels.jsonl.gz"
 max_tokens = 400
 
 QA_SPECIAL_TOKENS_V2_5 = {
@@ -173,6 +175,7 @@ def get_prompts_oasst_only(path):
     return prompts
 
 prompts = get_prompts_oasst_only(data_path)
+print(prompts)
 
 @torch.no_grad()
 def rank_model_fn(samples, **kwargs):
