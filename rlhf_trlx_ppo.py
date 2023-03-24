@@ -13,6 +13,7 @@ from datasets import load_dataset
 
 from transformers import pipeline
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from reward_modeling import GPTNeoXRewardModel
 
 import pandas as pd
 import datasets
