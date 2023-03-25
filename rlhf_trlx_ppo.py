@@ -10,10 +10,13 @@ from datasets import load_from_disk, Dataset
 from datasets import load_dataset
 from transformers import pipeline
 from datasets import load_dataset
+from model_training.custom_datasets import get_one_dataset
+import model_training.models.reward_model
+from argparse import Namespace
 
 from transformers import pipeline
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
-from reward_modeling import GPTNeoXRewardModel
+import model_training.models.reward_model
 
 import pandas as pd
 import datasets
@@ -29,9 +32,9 @@ reward_name = "andreaskoepf/oasst-rm-1-pythia-1b"
 sft_model_name = "OpenAssistant/oasst-sft-1-pythia-12b"
 #rallio data is the same as the OIG data; most of which can be used here as well
 # path_1 = directory + "/chip2_instruct_alpha_v6a_4.json" #Currently only set up to work with rallio's data format; for more info on these look here: https://github.com/LAION-AI/Open-Instruction-Generalist
-data_path = directory + "/en_100_tree.jsonl.gz" #change to wherever your code is located
+#data_path = directory + "/en_100_tree.jsonl.gz" #change to wherever your code is located
 #For OAsst data :)
-# data_path = directory + "/data_cache/2023-03-13_oasst_ready_labels.jsonl.gz"
+file_path = "2023-03-13_oasst_ready_labels.jsonl.gz"
 max_tokens = 400
 
 QA_SPECIAL_TOKENS_V2_5 = {
@@ -48,6 +51,10 @@ rm_model.eval()
 rm_model.requires_grad_(False)
 rm_device = torch.cuda.device_count() - 1
 rm_model = rm_model.half().to(rm_device)
+
+#Function to add the needed tokens in front of and behind the given string
+def format_string(prompt):
+    return f"{QA_SPECIAL_TOKENS_V2_5['prompter']}{prompt}{QA_SPECIAL_TOKENS_V2_5['eos']}{QA_SPECIAL_TOKENS_V2_5['assistant']}"
 
 #This is only to be used if you are attempting do run both SFT and RLHF in the same script as it loads the dataset with the tokenizer which is quite memory intensive
 #Currently only set up to work with rallio's data format; for more info on these look here: https://github.com/LAION-AI/Open-Instruction-Generalist
@@ -120,8 +127,7 @@ def get_prompts_and_dataset(dataset_name, tokenizer): #Gives you prompts, train_
         except:
             #There is one prompt with an issue here; we simply skip that one
             continue
-        prompt = final
-        prompts.append(f"{QA_SPECIAL_TOKENS_V2_5['prompter']}{prompt}{QA_SPECIAL_TOKENS_V2_5['eos']}{QA_SPECIAL_TOKENS_V2_5['assistant']}")
+        prompts.append(format_string(final))
     return prompts, my_train_dataset, my_eval_dataset
 
 #This is only to get prompts; currently supports rallio's data format and oasst data format
@@ -151,8 +157,7 @@ def get_prompts_rallio_and_oasst(path_1=None, path_2=None):
     #Adds Rallio's prompts
     for i in range(len(fixed) - 1):
         try:
-            prompt = fixed[i].split("\\n")[0].split("User:")[1]
-            prompts.append(f"{QA_SPECIAL_TOKENS_V2_5['prompter']}{prompt}{QA_SPECIAL_TOKENS_V2_5['eos']}{QA_SPECIAL_TOKENS_V2_5['assistant']}")
+            prompts.append(format_string(fixed[i].split("\\n")[0].split("User:")[1]))
         except:
             continue
 
@@ -160,23 +165,39 @@ def get_prompts_rallio_and_oasst(path_1=None, path_2=None):
     
     with open(path_2, 'r') as json_file:
         for _line in json_file:
-            prompts.append(f"{QA_SPECIAL_TOKENS_V2_5['prompter']}{json.loads(_line)['prompt']['text']}{QA_SPECIAL_TOKENS_V2_5['eos']}{QA_SPECIAL_TOKENS_V2_5['assistant']}")
+            prompts.append(format_string({json.loads(_line)['prompt']['text']}))
 
     return prompts
 
 #get prompts from oasst data only; sample can be found in the Open Assistant repository
 #assuming no prefix will be fed during RL or SFT training
-def get_prompts_oasst_only(path):
-    prompts=[]
+def get_prompts_oasst_only(file_path):
 
-    with open(path, 'r') as json_file:
-        for _line in json_file:
-            prompts.append(f"{QA_SPECIAL_TOKENS_V2_5['prompter']}{json.loads(_line)['prompt']['text']}{QA_SPECIAL_TOKENS_V2_5['eos']}{QA_SPECIAL_TOKENS_V2_5['assistant']}")
+    config = Namespace(
+        cache_dir="../../../home/ubuntu/data_cache",
+    )
+    kwargs = {
+        "lang": "en",
+        "top_k": 2,
+        "input_file_path": file_path,
+        "mode": "sft",
+    }
+    train, val = get_one_dataset(conf=config, dataset_name="oasst_export", **kwargs)
+
+    #Need to actually convert these to prompts to be fed into TRLX
+    prompts = []
+    for i in train.data:
+        if format_string(i[0]) not in prompts:
+            prompts.append(format_string(i[0]))
+    
+    for i in val.data:
+        if format_string(i[0]) not in prompts:
+            prompts.append(format_string(i[0]))
 
     return prompts
 
-prompts = get_prompts_oasst_only(data_path)
-print(prompts)
+prompts = get_prompts_oasst_only(file_path)
+print(prompts[0])
 
 @torch.no_grad()
 def rank_model_fn(samples, **kwargs):
