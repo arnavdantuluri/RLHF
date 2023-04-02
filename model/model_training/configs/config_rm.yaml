@@ -1,0 +1,87 @@
+defaults_rm:
+  rng_seed: 0xa1221f97
+  is_reward_model: true
+  pooling: last
+  learning_rate: 1e-5
+  gradient_checkpointing: false
+  gradient_accumulation_steps: 2
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  adam_beta1: 0.9
+  adam_beta2: 0.95
+  adam_epsilon: 1e-12
+  weight_decay: 0.00
+  warmup_steps: 10
+  eval_steps: 50
+  save_steps: 100
+  max_length: 512
+  num_train_epochs: 2
+  logging_steps: 10
+  max_grad_norm: 2.0
+  save_total_limit: 4
+  fp16: true
+  eval_accumulation_steps:
+  freeze_layer:
+  cache_dir: .cache
+  loss_fn: RMLoss
+  score_l2_reg: 0.001
+  eval_size:
+  log_dir: "base"
+  quantization: false
+  seq2seqmodel: false
+  fuse_gelu: true
+  log_wandb: true
+  verbose: false
+  output_dir: .saved_models_rm
+  use_custom_sampler: false
+  residual_dropout: 0.0
+  use_flash_attention: false
+  sort_by_length: false
+  per_digit_tokens: false
+  datasets_extra: []
+  metrics: ["accuracy", "kendalltau"]
+
+oasst-rm-1-pythia-6B:
+  is_reward_model: true
+  pooling: last
+  datasets:
+    - oasst_export:
+        lang: "en,es,de,fr"
+        input_file_path: 2023-03-21_oasst_ready_synth_labels.jsonl.gz
+  model_name: EleutherAI/pythia-6.9b-deduped
+  learning_rate: 1e-5
+  residual_dropout: 0.08
+  weight_decay: 0.075
+  max_length: 512
+  warmup_steps: 20
+  gradient_accumulation_steps: 2
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 3
+  eval_steps: 25
+  num_train_epochs: 2
+  sort_by_length: false
+  per_digit_tokens: false
+  save_steps: 500
+
+# params based on sweep result: https://wandb.ai/open-assistant/reward_model/runs/9102dee8
+# actual run for export: https://wandb.ai/open-assistant/reward-model/runs/1lw4g83x
+oasst-rm-1-pythia-1b:
+  datasets:
+    - oasst_export:
+        lang: "en,es,de,fr"
+        input_file_path: 2023-03-21_oasst_ready_synth_labels.jsonl.gz
+        val_split: 0.1
+  model_name: EleutherAI/pythia-1b-deduped
+  learning_rate: 2.3984085802847404e-05
+  residual_dropout: 0.08172424407561013
+  weight_decay: 0.07428722634825694
+  max_length: 520
+  warmup_steps: 10
+  # assuming training on single GPU
+  # per_device_train_batch_size: 8  # 48 GB not enough
+  gradient_accumulation_steps: 2
+  per_device_train_batch_size: 4
+  per_device_eval_batch_size: 16
+  num_train_epochs: 1
+  eval_steps: 100
+  save_steps: 500

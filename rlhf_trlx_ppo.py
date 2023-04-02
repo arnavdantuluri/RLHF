@@ -6,17 +6,19 @@ import yaml
 from trlx.trlx import train
 from trlx.data.configs import TRLConfig
 
+from model_training.custom_datasets.formatting import QA_SPECIAL_TOKENS, format_pairs
 from datasets import load_from_disk, Dataset
 from datasets import load_dataset
 from transformers import pipeline
 from datasets import load_dataset
 from model_training.custom_datasets import get_one_dataset
 import model_training.models.reward_model
+import random
 from argparse import Namespace
 
 from transformers import pipeline
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
-import model_training.models.reward_model
+from reward_modeling import GPTNeoXRewardModel
 
 import pandas as pd
 import datasets
@@ -30,12 +32,13 @@ import json
 directory = os.getcwd()
 reward_name = "andreaskoepf/oasst-rm-1-pythia-1b"
 sft_model_name = "OpenAssistant/oasst-sft-1-pythia-12b"
+# sft_model_name = "EleutherAI/pythia-70m-deduped"
 #rallio data is the same as the OIG data; most of which can be used here as well
 # path_1 = directory + "/chip2_instruct_alpha_v6a_4.json" #Currently only set up to work with rallio's data format; for more info on these look here: https://github.com/LAION-AI/Open-Instruction-Generalist
 #data_path = directory + "/en_100_tree.jsonl.gz" #change to wherever your code is located
 #For OAsst data :)
 file_path = "2023-03-13_oasst_ready_labels.jsonl.gz"
-max_tokens = 400
+max_tokens = 108
 
 QA_SPECIAL_TOKENS_V2_5 = {
     "prompter": "<|prompter|>",
@@ -46,11 +49,11 @@ QA_SPECIAL_TOKENS_V2_5 = {
     "eos": "<|endoftext|>",
 }
 
-rm_model, rm_tokenizer = AutoModelForSequenceClassification.from_pretrained(reward_name), AutoTokenizer.from_pretrained(reward_name)
+rm_model, rm_tokenizer = AutoModelForSequenceClassification.from_pretrained(reward_name), AutoTokenizer.from_pretrained(reward_name, padding_side="left")
 rm_model.eval()
-rm_model.requires_grad_(False)
+rm_model.gradient_checkpointing_enable()
 rm_device = torch.cuda.device_count() - 1
-rm_model = rm_model.half().to(rm_device)
+rm_model = rm_model.to(rm_device).half()
 
 #Function to add the needed tokens in front of and behind the given string
 def format_string(prompt):
@@ -171,7 +174,7 @@ def get_prompts_rallio_and_oasst(path_1=None, path_2=None):
 
 #get prompts from oasst data only; sample can be found in the Open Assistant repository
 #assuming no prefix will be fed during RL or SFT training
-def get_prompts_oasst_only(file_path):
+def get_prompts_oasst_only(file_path, split_size=0.99):
 
     config = Namespace(
         cache_dir="../../../home/ubuntu/data_cache",
@@ -180,29 +183,31 @@ def get_prompts_oasst_only(file_path):
         "lang": "en",
         "top_k": 2,
         "input_file_path": file_path,
-        "mode": "sft",
+        "mode": "rl",
     }
     train, val = get_one_dataset(conf=config, dataset_name="oasst_export", **kwargs)
 
     #Need to actually convert these to prompts to be fed into TRLX
-    prompts = []
-    for i in train.data:
-        if format_string(i[0]) not in prompts:
-            prompts.append(format_string(i[0]))
-    
-    for i in val.data:
-        if format_string(i[0]) not in prompts:
-            prompts.append(format_string(i[0]))
+    prompts, val_prompts = tuple(
+        map(
+            lambda x: [
+                "".join(format_pairs(x[i][0], rm_tokenizer.eos_token, add_initial_reply_token=True))
+                for i in range(len(x))
+            ],
+            (train, val),
+        )
+    )
 
-    return prompts
+    random.shuffle(prompts)
+    random.shuffle(val_prompts)
 
-prompts = get_prompts_oasst_only(file_path)
-print(prompts[0])
+    return prompts, val_prompts
 
-@torch.no_grad()
+prompts, val_prompts = get_prompts_oasst_only(file_path)
+
 def rank_model_fn(samples, **kwargs):
     inputs = rm_tokenizer(samples, return_tensors="pt", padding=True).to(rm_device)
-    return rm_model(**inputs).logits[0].detach().cpu()
+    return rm_model(**inputs).logits[:, 0].detach().cpu()
 
 with open(directory + '/configs/ppo_config_summ_gptj.yaml') as f:
     default_config = yaml.safe_load(f)
@@ -212,12 +217,13 @@ trlx_config = TRLConfig.update(default_config, {})
 trlx_config.tokenizer.tokenizer_path = sft_model_name
 trlx_config.model.model_path = sft_model_name
 trlx_config.method.gen_kwargs["max_new_tokens"] = max_tokens
-trlx_config.train.batch_size = 16
+trlx_config.train.batch_size = 1
 
 trainer = train(
     sft_model_name,
     reward_fn=rank_model_fn,
-    prompts=prompts,
+    prompts=prompts[:len(prompts)//2], 
+    eval_prompts=val_prompts[:50],
     config=trlx_config,
 )
 
